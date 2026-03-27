@@ -18,7 +18,7 @@ const State = {
   searchQuery: '',
   currentProduct: null,
   currentImgIndex: 0,
-  apiBase: 'https://bot1-production-e1e5.up.railway.app',
+  apiBase: 'https://bot-api-production-2f78.up.railway.app',
   _promoData: null,
 };
 
@@ -676,8 +676,9 @@ function renderCart() {
   el.innerHTML = State.cart.map((item, idx) => {
     const qty = item.qty || 1;
     return `<div class="cart-item animate-fade delay-${(idx % 4) + 1}">
-      <div class="cart-item__img-ph">
-        <img src="assets/shopping-cart.svg" style="width:24px;opacity:.3">
+      <div class="cart-item__img-ph" id="cart-ph-${item.product_id}" style="position:relative;overflow:hidden">
+        <img src="assets/shopping-cart.svg" style="width:24px;opacity:.3" id="cart-ph-icon-${item.product_id}">
+        ${item.card_file_id ? `<img id="cart-img-${item.product_id}" src="" alt="${item.name}" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit">` : ''}
       </div>
       <div class="cart-item__info">
         <div class="cart-item__name">${item.name}</div>
@@ -708,6 +709,16 @@ function renderCart() {
     ${discount ? `<div class="cart-summary__row" style="color:var(--primary)"><span>Скидка (${State._promoData?.code})</span><span>-${fmtPrice(discount)}</span></div>` : ''}
     <div class="cart-summary__row"><span style="font-size:16px">Итого</span><span class="cart-summary__total">${fmtPrice(finalTotal)}</span></div>
   `;
+
+  // Load cart item images
+  requestAnimationFrame(() => {
+    State.cart.forEach(item => {
+      if (!item.card_file_id) return;
+      const imgEl = document.getElementById(`cart-img-${item.product_id}`);
+      const phIcon = document.getElementById(`cart-ph-icon-${item.product_id}`);
+      if (imgEl) loadProductImgEl(item.card_file_id, imgEl, phIcon);
+    });
+  });
 }
 
 function cartIncQty(pid, size) {
@@ -829,13 +840,6 @@ async function applyPromo() {
 function renderFavorites() {
   const el = document.getElementById('fav-grid');
   if (!el) return;
-
-  // If catalog is still loading — show skeletons
-  if (State.catalogLoading) {
-    el.innerHTML = skeletonGrid(4);
-    return;
-  }
-
   const favProds = State.products.filter(p => State.favorites.includes(p.id));
   if (!favProds.length) {
     el.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
@@ -992,9 +996,8 @@ async function loadCatalog() {
   } catch {}
   State.catalogLoading = false;
   renderHome();
-  // Refresh whichever page is currently active so product cards appear everywhere
+  // If user is already on catalog page, refresh it now that data is ready
   if (State.currentPage === 'catalog') renderCatalog();
-  if (State.currentPage === 'favorites') renderFavorites();
 }
 
 // ─── Clear catalog filters ────────────────────────────
