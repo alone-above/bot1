@@ -3,9 +3,9 @@
     "name": "Alone Above Shop",
     "tagline": "Эксклюзивный стритвир для тех, кто не боится выделяться",
     "description": "Премиальное качество и уникальный стиль. Мы подбираем лучшие бренды и уникальные коллекции для тех, кто ценит стиль.",
-    "logo": "assets/logo.svg",
-    "logo_dark": "assets/logo.svg",
-    "favicon": "assets/logo.svg"
+    "logo": "assets/logo.webp",
+    "logo_dark": "assets/logo.webp",
+    "favicon": "assets/logo.webp"
   },
   "colors": {
     "primary": "#78E700",
