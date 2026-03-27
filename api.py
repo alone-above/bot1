@@ -8,6 +8,7 @@ import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
@@ -22,6 +23,10 @@ from aiogram import Bot
 from db.pool import db_run
 
 app = FastAPI(title="ShopBot API", description="API для мини-аппа магазина")
+
+# Отдаём статику (CSS, JS, assets)
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+app.mount("/assets", StaticFiles(directory=os.path.join(_base_dir, "assets")), name="assets")
 
 # Инициализируем бота для отправки уведомлений менеджеру
 from config import BOT_TOKEN
@@ -46,6 +51,16 @@ async def health():
 async def serve_index():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
     return FileResponse(path, media_type="text/html")
+
+@app.get("/style.css")
+async def serve_css():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css")
+    return FileResponse(path, media_type="text/css")
+
+@app.get("/app.js")
+async def serve_js():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.js")
+    return FileResponse(path, media_type="application/javascript")
 
 # Debug info
 @app.get("/debug")
