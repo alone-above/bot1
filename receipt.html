@@ -63,6 +63,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   </div>
 </div>
 <script>
+// __RECEIPT_DATA_INJECT__
 function fmtPrice(p){return Number(p).toLocaleString('ru-RU')+' \u20B8';}
 function fmtDate(s){
   if(!s)return'\u2014';
@@ -152,7 +153,11 @@ function b64decode(b64){
 }
 
 const params=new URLSearchParams(location.search);
-if(params.get('data')){
+if(window.__RECEIPT_DATA__){
+  // Injected server-side from DB
+  try{fill(window.__RECEIPT_DATA__);}
+  catch(e){document.getElementById('r-loading').textContent='\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0447\u0435\u043a\u0430';console.error('receipt inject',e);}
+} else if(params.get('data')){
   try{fill(JSON.parse(b64decode(params.get('data'))));}
   catch(e){
     document.getElementById('r-loading').textContent='\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0447\u0435\u043a\u0430';
