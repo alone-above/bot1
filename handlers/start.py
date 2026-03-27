@@ -211,7 +211,7 @@ async def cb_agree_terms(cb: types.CallbackQuery, bot: Bot):
         f"{ae('down')} Выберите раздел:</blockquote>"
     )
     await smart_edit(bot, cb.message, cb.from_user.id, text, "main_menu", kb_main())
-    await cb.answer("✅ Добро пожаловать!")arse_mode="HTML", reply_markup=kb_main()
+    await cb.answer("✅ Добро пожаловать!")parse_mode="HTML", reply_markup=kb_main()
     except Exception:
         await bot.send_message(cb.from_user.id, text, parse_mode="HTML", reply_markup=kb_main())
     await cb.answer("✅ Добро пожаловать!")
