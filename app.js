@@ -18,7 +18,7 @@ const State = {
   searchQuery: '',
   currentProduct: null,
   currentImgIndex: 0,
-  apiBase: 'https://bot-api-production-2f78.up.railway.app',
+  apiBase: 'https://bot1-production-e1e5.up.railway.app',
   _promoData: null,
 };
 
@@ -829,6 +829,13 @@ async function applyPromo() {
 function renderFavorites() {
   const el = document.getElementById('fav-grid');
   if (!el) return;
+
+  // If catalog is still loading — show skeletons
+  if (State.catalogLoading) {
+    el.innerHTML = skeletonGrid(4);
+    return;
+  }
+
   const favProds = State.products.filter(p => State.favorites.includes(p.id));
   if (!favProds.length) {
     el.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
@@ -985,8 +992,9 @@ async function loadCatalog() {
   } catch {}
   State.catalogLoading = false;
   renderHome();
-  // If user is already on catalog page, refresh it now that data is ready
+  // Refresh whichever page is currently active so product cards appear everywhere
   if (State.currentPage === 'catalog') renderCatalog();
+  if (State.currentPage === 'favorites') renderFavorites();
 }
 
 // ─── Clear catalog filters ────────────────────────────
