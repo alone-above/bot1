@@ -18,7 +18,7 @@ const State = {
   searchQuery: '',
   currentProduct: null,
   currentImgIndex: 0,
-  apiBase: 'https://bot1-production-e1e5.up.railway.app',
+  apiBase: 'https://bot-api-production-2f78.up.railway.app',
   _promoData: null,
 };
 
@@ -68,7 +68,9 @@ async function api(path, opts = {}) {
     if (userId) headers['X-User-Id'] = userId;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000); // 8 сек таймаут
-    const res = await fetch(State.apiBase + path, { ...opts, headers, signal: controller.signal });
+    const base = State.apiBase.replace(/\/+$/, '');
+    const endpoint = path.startsWith('/') ? path : '/' + path;
+    const res = await fetch(base + endpoint, { ...opts, headers, signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
@@ -1062,7 +1064,7 @@ async function loadConfig() {
     const res = await fetch('config.json?v=' + Date.now());
     const cfg = await res.json();
     State.config = cfg;
-    const cfgBase = (cfg.api?.base_url || '').replace(/\/\$/, '');
+    const cfgBase = (cfg.api?.base_url || '').replace(/\/+$/, '');
     if (cfgBase) State.apiBase = cfgBase;
     applyConfig(cfg);
   } catch (e) {
