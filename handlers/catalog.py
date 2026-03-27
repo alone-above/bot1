@@ -9,7 +9,7 @@ from db import (
     wish_has, get_avg_rating, get_review_count,
     get_bot_msg, is_banned, log_event, db_one,
 )
-from handlers.start import send_media
+from handlers.start import send_media, smart_edit
 from keyboards import kb_back, btn, kb
 from keyboards.inline import kb_product
 from utils import fmt_price
@@ -47,20 +47,7 @@ async def cb_shop(cb: types.CallbackQuery, bot: Bot):
     rows = [[btn(c["name"], f"cat_{c['id']}", icon="folder")] for c in cats]
     rows.append([btn("Дропы", "drops_menu", icon="fire")])
     rows.append([btn("Назад", "main", icon="back")])
-    markup = kb(*rows)
-    # Пробуем отредактировать текущее сообщение, если не получается — удаляем и отправляем новое
-    try:
-        if cb.message.photo or cb.message.video or cb.message.animation:
-            await cb.message.delete()
-            await bot.send_message(cb.from_user.id, header, parse_mode="HTML", reply_markup=markup)
-        else:
-            await cb.message.edit_text(header, parse_mode="HTML", reply_markup=markup)
-    except Exception:
-        try:
-            await cb.message.delete()
-        except Exception:
-            pass
-        await bot.send_message(cb.from_user.id, header, parse_mode="HTML", reply_markup=markup)
+    await smart_edit(bot, cb.message, cb.from_user.id, header, "catalog_menu", kb(*rows))
     await cb.answer()
 
 
@@ -217,13 +204,28 @@ async def cb_gallery(cb: types.CallbackQuery, bot: Bot):
     markup = kb(nav, [btn("К товару", f"prod_{pid}", icon="back")])
     caption = f"🖼 <b>Галерея</b>  {idx+1}/{total}  —  {p['name']}"
 
-    # Попробуем просто обновить подпись/текст, не создавая новое сообщение.
+    # Всегда удаляем старое сообщение и отправляем новое с медиа
     try:
-        if (cb.message.photo or cb.message.video or cb.message.animation or
-                cb.message.document):
-            await cb.message.edit_caption(caption=caption, parse_mode="HTML", reply_markup=markup)
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    try:
+        if mt == "photo":
+            await bot.send_photo(cb.from_user.id, fid, caption=caption,
+                                 parse_mode="HTML", reply_markup=markup)
+        elif mt == "video":
+            await bot.send_video(cb.from_user.id, fid, caption=caption,
+                                 parse_mode="HTML", reply_markup=markup)
+        elif mt == "animation":
+            await bot.send_animation(cb.from_user.id, fid, caption=caption,
+                                     parse_mode="HTML", reply_markup=markup)
+        elif mt == "document":
+            await bot.send_document(cb.from_user.id, fid, caption=caption,
+                                    parse_mode="HTML", reply_markup=markup)
         else:
-            await cb.message.edit_text(caption, parse_mode="HTML", reply_markup=markup)
+            await bot.send_message(cb.from_user.id, caption,
+                                   parse_mode="HTML", reply_markup=markup)
     except Exception:
         await bot.send_message(cb.from_user.id, caption, parse_mode="HTML", reply_markup=markup)
     await cb.answer()
