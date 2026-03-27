@@ -61,10 +61,10 @@
   "contact": {
     "email": "support@aloneabove.shop",
     "work_hours": "10:00 — 22:00",
-    "kaspi_phone": "+7XXXXXXXXXX"
+    "kaspi_phone": "+7 707 811 5621"
   },
   "api": {
-    "base_url": "https://bot-api-production-2f78.up.railway.app"
+    "base_url": "https://rare-miracle-production-1ccf.up.railway.app"
   },
   "links": {
     "catalog_btn": "#catalog",
