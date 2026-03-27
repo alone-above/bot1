@@ -18,44 +18,18 @@ class ComplaintSt(StatesGroup):
 
 # ── Главная страница поддержки ─────────────────────────
 async def show_support(bot: Bot, chat_id: int, edit_msg: types.Message | None = None):
-    from db import get_media, db_run, _cache_invalidate
+    from handlers.start import smart_edit
     text = (
         f"{ae('support')} <b>Поддержка</b>\n\n"
         f"<blockquote>По любым вопросам пишите нашему менеджеру "
         f"или в службу поддержки.</blockquote>"
     )
     markup = kb_support(SUPPORT_USERNAME)
-    m = await get_media("support_menu")
-    if m:
-        mt = m["media_type"]
-        if edit_msg:
-            try:
-                await edit_msg.delete()
-            except Exception:
-                pass
-        try:
-            if mt == "photo":
-                await bot.send_photo(chat_id, m["file_id"], caption=text,
-                                     parse_mode="HTML", reply_markup=markup)
-                return
-            elif mt == "video":
-                await bot.send_video(chat_id, m["file_id"], caption=text,
-                                     parse_mode="HTML", reply_markup=markup)
-                return
-            elif mt == "animation":
-                await bot.send_animation(chat_id, m["file_id"], caption=text,
-                                         parse_mode="HTML", reply_markup=markup)
-                return
-        except Exception:
-            await db_run("DELETE FROM media_settings WHERE key='support_menu'")
-            _cache_invalidate("media:support_menu")
     if edit_msg:
-        try:
-            await edit_msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
-            return
-        except Exception:
-            pass
-    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+        await smart_edit(bot, edit_msg, chat_id, text, "support_menu", markup)
+    else:
+        from handlers.start import send_media
+        await send_media(bot, chat_id, text, "support_menu", markup)
 
 
 @router.callback_query(F.data == "support")
