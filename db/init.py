@@ -237,6 +237,11 @@ async def init_db():
             added_at   TEXT,
             UNIQUE(user_id, product_id)
         );
+        CREATE TABLE IF NOT EXISTS receipts (
+            receipt_id TEXT PRIMARY KEY,
+            data       TEXT NOT NULL,
+            created_at TEXT
+        );
         """)
 
         # Миграции — добавить колонки если не существуют
