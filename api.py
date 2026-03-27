@@ -408,22 +408,32 @@ async def create_order_handler(order: OrderRequest):
         except Exception as e:
             print(f"Manager notify error: {e}")
 
-        # Save receipt to DB and send short link
-        from db.orders import save_receipt
-        await save_receipt(receipt_id, receipt_data)
-        receipt_url = f"https://bot-api-production-2f78.up.railway.app/receipt?id={receipt_id}"
-        receipt_msg = (
-            f"🧾 <b>Чек заказа #{oid}</b>\n\n"
-            f"💰 Сумма: <b>{total_after:,.0f} ₸</b>\n"
-            f"📲 Переведите на номер: <code>{KASPI_PHONE}</code>\n\n"
-            f"<blockquote>После оплаты менеджер подтвердит заказ.</blockquote>"
-        )
+        # Build and send receipt as HTML file
         try:
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            user_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🧾 Открыть чек", url=receipt_url)
-            ]])
-            await bot_instance.send_message(user_id, receipt_msg, parse_mode="HTML", reply_markup=user_kb)
+            import io
+            receipt_template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
+            with open(receipt_template_path, encoding="utf-8") as f:
+                receipt_html = f.read()
+            receipt_json = json.dumps(receipt_data, ensure_ascii=False)
+            receipt_html = receipt_html.replace(
+                "// __RECEIPT_DATA_INJECT__",
+                f"window.__RECEIPT_DATA__ = {receipt_json};"
+            )
+            receipt_bytes = io.BytesIO(receipt_html.encode("utf-8"))
+            receipt_bytes.name = f"receipt#{oid}.html"
+            receipt_msg = (
+                f"🧾 <b>Чек заказа #{oid}</b>\n\n"
+                f"💰 Сумма: <b>{total_after:,.0f} ₸</b>\n"
+                f"📲 Переведите на номер: <code>{KASPI_PHONE}</code>\n\n"
+                f"<blockquote>После оплаты менеджер подтвердит заказ.</blockquote>"
+            )
+            from aiogram.types import BufferedInputFile
+            await bot_instance.send_document(
+                user_id,
+                BufferedInputFile(receipt_html.encode("utf-8"), filename=f"receipt#{oid}.html"),
+                caption=receipt_msg,
+                parse_mode="HTML",
+            )
         except Exception as e:
             print(f"User receipt send error: {e}")
 
