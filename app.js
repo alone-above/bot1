@@ -18,7 +18,7 @@ const State = {
   searchQuery: '',
   currentProduct: null,
   currentImgIndex: 0,
-  apiBase: 'https://rare-miracle-production-1ccf.up.railway.app',
+  apiBase: 'https://bot1-production-e1e5.up.railway.app/',
   _promoData: null,
 };
 
