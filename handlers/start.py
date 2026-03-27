@@ -55,6 +55,46 @@ async def send_media(bot: Bot, chat_id: int, text: str, key: str, markup=None,
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 
+async def smart_edit(bot: Bot, cb_message: types.Message, chat_id: int,
+                     text: str, key: str, markup=None):
+    """Edit or delete+send depending on whether a media key has media set.
+
+    - If media exists for key: delete old message, send new one with media.
+    - If no media: try edit_text, fallback to send_message.
+    """
+    from db import get_media
+    m = await get_media(key)
+    if m:
+        # Media is configured — must delete and send fresh
+        try:
+            await cb_message.delete()
+        except Exception:
+            pass
+        mt = m["media_type"]
+        try:
+            if mt == "photo":
+                await bot.send_photo(chat_id, m["file_id"], caption=text,
+                                     parse_mode="HTML", reply_markup=markup)
+                return
+            elif mt == "video":
+                await bot.send_video(chat_id, m["file_id"], caption=text,
+                                     parse_mode="HTML", reply_markup=markup)
+                return
+            elif mt == "animation":
+                await bot.send_animation(chat_id, m["file_id"], caption=text,
+                                         parse_mode="HTML", reply_markup=markup)
+                return
+        except Exception:
+            from db import db_run as _dr, _cache_invalidate as _ci
+            await _dr("DELETE FROM media_settings WHERE key=$1", (key,))
+            _ci(f"media:{key}")
+    # No media — just edit in place
+    try:
+        await cb_message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+    except Exception:
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+
+
 async def set_cmds(bot: Bot, uid: int):
     cmds = [BotCommand(command="start", description="🚀 Старт")]
     if uid in ADMIN_IDS:
@@ -126,20 +166,7 @@ async def cb_main(cb: types.CallbackQuery, state: FSMContext, bot: Bot):
         f"{ae('sparkle')} <b>{SHOP_NAME}</b>\n\n"
         f"<blockquote>{ae('down')} Выберите нужный раздел:</blockquote>"
     )
-    markup = kb_main()
-    try:
-        if cb.message.photo or cb.message.video or cb.message.animation:
-            # Медиа-сообщение — удаляем и отправляем текстовое
-            await cb.message.delete()
-            await bot.send_message(cb.from_user.id, text, parse_mode="HTML", reply_markup=markup)
-        else:
-            await cb.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
-    except Exception:
-        try:
-            await cb.message.delete()
-        except Exception:
-            pass
-        await bot.send_message(cb.from_user.id, text, parse_mode="HTML", reply_markup=markup)
+    await smart_edit(bot, cb.message, cb.from_user.id, text, "main_menu", kb_main())
     await cb.answer()
 
 
@@ -150,15 +177,11 @@ async def cb_adm_panel(cb: types.CallbackQuery, state: FSMContext, bot: Bot):
         await cb.answer("Нет доступа", show_alert=True)
         return
     await state.clear()
-    try:
-        await cb.message.edit_text(
-            f"{ae('crown')} <b>Панель управления</b>",
-            parse_mode="HTML", reply_markup=kb_admin(),
-        )
-    except Exception:
-        await bot.send_message(cb.from_user.id,
-                               f"{ae('crown')} <b>Панель управления</b>",
-                               parse_mode="HTML", reply_markup=kb_admin())
+    await smart_edit(
+        bot, cb.message, cb.from_user.id,
+        f"{ae('crown')} <b>Панель управления</b>",
+        "admin_panel", kb_admin(),
+    )
     await cb.answer()
 
 
@@ -187,8 +210,8 @@ async def cb_agree_terms(cb: types.CallbackQuery, bot: Bot):
         f"<blockquote>{ae('ok')} Спасибо! Вы приняли условия.\n\n"
         f"{ae('down')} Выберите раздел:</blockquote>"
     )
-    try:
-        await cb.message.edit_text(text, parse_mode="HTML", reply_markup=kb_main())
+    await smart_edit(bot, cb.message, cb.from_user.id, text, "main_menu", kb_main())
+    await cb.answer("✅ Добро пожаловать!")arse_mode="HTML", reply_markup=kb_main()
     except Exception:
         await bot.send_message(cb.from_user.id, text, parse_mode="HTML", reply_markup=kb_main())
     await cb.answer("✅ Добро пожаловать!")
