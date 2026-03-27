@@ -411,6 +411,13 @@ function selectCat(id) {
 function renderProductGrid() {
   const el = document.getElementById('product-grid');
   if (!el) return;
+
+  // Data is still loading — show skeletons instead of "nothing found"
+  if (State.catalogLoading) {
+    el.innerHTML = skeletonGrid(8);
+    return;
+  }
+
   let prods = State.products;
   if (State.currentCategory) prods = prods.filter(p => p.category_id == State.currentCategory);
   if (State.searchQuery) {
@@ -418,10 +425,13 @@ function renderProductGrid() {
     prods = prods.filter(p => p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q));
   }
   if (!prods.length) {
+    // If we have products overall but nothing matches — filters/search issue
+    const hasAnyProducts = State.products.length > 0;
     el.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
       <div class="empty-state__icon"><img src="assets/search.svg" style="width:40px;opacity:.4"></div>
       <div class="empty-state__title">Ничего не найдено</div>
-      <div class="empty-state__desc">Попробуйте изменить фильтры</div>
+      <div class="empty-state__desc">${hasAnyProducts ? 'Попробуйте изменить фильтры или поисковый запрос' : 'Товары временно недоступны'}</div>
+      ${hasAnyProducts && (State.currentCategory || State.searchQuery) ? `<button class="btn btn-primary" onclick="clearFilters()" style="margin-top:12px">Сбросить фильтры</button>` : ''}
     </div>`;
     return;
   }
@@ -954,21 +964,36 @@ function handleSearch(e) {
 
 // ─── Load data ────────────────────────────────────────
 async function loadCatalog() {
+  State.catalogLoading = true;
+  // If user is already on catalog page, show skeletons immediately
+  if (State.currentPage === 'catalog') renderProductGrid();
   try {
     const res = await api('/categories');
     State.categories = res?.categories || [];
   } catch {}
   try {
-    // Load all products from all categories
-    const allProds = [];
-    for (const cat of State.categories) {
-      const res = await api(`/categories/${cat.id}/products`);
-      const prods = (res?.products || []).map(p => ({ ...p, category_name: cat.name }));
-      allProds.push(...prods);
-    }
-    State.products = allProds;
+    // Load all categories in parallel instead of sequentially
+    const fetches = State.categories.map(cat =>
+      api(`/categories/${cat.id}/products`)
+        .then(res => (res?.products || []).map(p => ({ ...p, category_name: cat.name })))
+        .catch(() => [])
+    );
+    const results = await Promise.all(fetches);
+    State.products = results.flat();
   } catch {}
+  State.catalogLoading = false;
   renderHome();
+  // If user is already on catalog page, refresh it now that data is ready
+  if (State.currentPage === 'catalog') renderCatalog();
+}
+
+// ─── Clear catalog filters ────────────────────────────
+function clearFilters() {
+  State.currentCategory = null;
+  State.searchQuery = '';
+  const searchInput = document.getElementById('header-search-input');
+  if (searchInput) searchInput.value = '';
+  renderCatalog();
 }
 
 // ─── Apply config styles ──────────────────────────────
@@ -1037,7 +1062,8 @@ async function loadConfig() {
     const res = await fetch('config.json?v=' + Date.now());
     const cfg = await res.json();
     State.config = cfg;
-    State.apiBase = (cfg.api?.base_url || '').replace(/\/$/, '');
+    const cfgBase = (cfg.api?.base_url || '').replace(/\/\$/, '');
+    if (cfgBase) State.apiBase = cfgBase;
     applyConfig(cfg);
   } catch (e) {
     console.error('Config load failed:', e);
