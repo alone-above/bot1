@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Чек — Alone Above Shop</title>
+<style>
+:root{--primary:#78E700;--bg:#0d0d0d;--bg2:#161616;--bg3:#1e1e1e;--border:rgba(255,255,255,0.08);--text:#f0f0f0;--text2:#888;--text3:#555}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.receipt{background:var(--bg2);border:1px solid var(--border);border-radius:20px;width:100%;max-width:420px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.receipt__header{background:linear-gradient(135deg,#0d0d0d,#1a1a1a);padding:28px 24px 20px;text-align:center;border-bottom:1px solid var(--border)}
+.receipt__logo{width:52px;height:52px;border-radius:14px;margin:0 auto 12px;display:block}
+.receipt__shop-name{font-size:18px;font-weight:700;letter-spacing:.5px;margin-bottom:4px}
+.receipt__tagline{font-size:12px;color:var(--text2)}
+.receipt__status{display:inline-flex;align-items:center;gap:6px;background:rgba(120,231,0,.12);border:1px solid rgba(120,231,0,.3);color:var(--primary);font-size:13px;font-weight:600;padding:6px 14px;border-radius:20px;margin-top:14px}
+.receipt__body{padding:20px 24px}
+.receipt__section{margin-bottom:18px}
+.receipt__section-title{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+.receipt__row{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:12px}
+.receipt__row:last-child{border-bottom:none}
+.receipt__row-label{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text2);flex-shrink:0}
+.receipt__row-value{font-size:13px;font-weight:500;text-align:right;word-break:break-all}
+.receipt__row-value.mono{font-family:'Courier New',monospace;font-size:11px;color:var(--text2)}
+.receipt__items{background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:18px}
+.receipt__item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.receipt__item:last-child{border-bottom:none}
+.receipt__item-icon{width:36px;height:36px;background:rgba(120,231,0,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.receipt__item-icon img{width:20px;height:20px;opacity:.8}
+.receipt__item-info{flex:1;min-width:0}
+.receipt__item-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.receipt__item-meta{font-size:11px;color:var(--text2);margin-top:2px}
+.receipt__item-price{font-size:14px;font-weight:700;color:var(--primary);flex-shrink:0}
+.receipt__total{background:linear-gradient(135deg,rgba(120,231,0,.1),rgba(78,150,0,.05));border:1px solid rgba(120,231,0,.2);border-radius:12px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.receipt__total-label{font-size:14px;font-weight:600;color:var(--text2)}
+.receipt__total-amount{font-size:22px;font-weight:800;color:var(--primary)}
+.receipt__sig{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:18px}
+.receipt__sig-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.receipt__sig-value{font-family:'Courier New',monospace;font-size:11px;color:var(--text2);word-break:break-all;line-height:1.6}
+.receipt__footer{padding:16px 24px;border-top:1px solid var(--border);text-align:center}
+.receipt__footer-text{font-size:12px;color:var(--text3);line-height:1.6}
+.receipt__footer-brand{font-size:13px;font-weight:600;color:var(--text2);margin-top:8px}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text2);font-size:14px}
+</style>
+</head>
+<body>
+<div class="receipt" id="receipt-wrap">
+  <div class="receipt__header">
+    <img src="assets/logo.svg" alt="logo" class="receipt__logo" onerror="this.style.display='none'">
+    <div class="receipt__shop-name" id="r-shop-name">Alone Above Shop</div>
+    <div class="receipt__tagline">Официальный чек об оплате</div>
+    <div class="receipt__status" id="r-status">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      <span id="r-status-text">Оплата подтверждена</span>
+    </div>
+  </div>
+  <div class="receipt__body" id="r-body">
+    <div class="empty-state" id="r-loading">Загрузка данных чека...</div>
+  </div>
+  <div class="receipt__footer">
+    <div class="receipt__footer-text">Сохраните этот чек как подтверждение оплаты.<br>По вопросам: <span id="r-support">@AloneAboveSupport</span></div>
+    <div class="receipt__footer-brand">Alone Above Shop &copy; 2025</div>
+  </div>
+</div>
+<script>
+function fmtPrice(p){return Number(p).toLocaleString('ru-RU')+' \u20B8';}
+function fmtDate(s){
+  if(!s)return'\u2014';
+  try{return new Date(s).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});}
+  catch{return s;}
+}
+
+function fill(data){
+  document.getElementById('r-loading').style.display='none';
+  const body=document.getElementById('r-body');
+
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v||'\u2014';};
+  if(data.shop_name)set('r-shop-name',data.shop_name);
+  if(data.support)set('r-support',data.support);
+
+  body.innerHTML=`
+    <div class="receipt__section">
+      <div class="receipt__section-title">&#1048;&#1085;&#1092;&#1086;&#1088;&#1084;&#1072;&#1094;&#1080;&#1103; &#1086; &#1079;&#1072;&#1082;&#1072;&#1079;&#1077;</div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>\u0417\u0430\u043a\u0430\u0437</span>
+        <span class="receipt__row-value">#${data.order_id||'\u2014'}</span>
+      </div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>\u0414\u0430\u0442\u0430</span>
+        <span class="receipt__row-value">${fmtDate(data.created_at)}</span>
+      </div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Telegram ID</span>
+        <span class="receipt__row-value mono">${data.user_id||'\u2014'}</span>
+      </div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Username</span>
+        <span class="receipt__row-value">${data.username?'@'+data.username:'\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d'}</span>
+      </div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>\u041e\u043f\u043b\u0430\u0442\u0430</span>
+        <span class="receipt__row-value">${data.method==='kaspi'?'Kaspi Pay':data.method||'Kaspi Pay'}</span>
+      </div>
+    </div>
+    <div class="receipt__section">
+      <div class="receipt__section-title">\u0422\u043e\u0432\u0430\u0440\u044b</div>
+      <div class="receipt__items" id="r-items-inner"></div>
+    </div>
+    <div class="receipt__total">
+      <span class="receipt__total-label">\u0418\u0442\u043e\u0433\u043e \u043e\u043f\u043b\u0430\u0447\u0435\u043d\u043e</span>
+      <span class="receipt__total-amount">${fmtPrice(data.total||0)}</span>
+    </div>
+    <div class="receipt__sig">
+      <div class="receipt__sig-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        \u0426\u0438\u0444\u0440\u043e\u0432\u0430\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u044c
+      </div>
+      <div class="receipt__sig-value">${data.signature||'\u2014'}</div>
+    </div>
+    <div class="receipt__section">
+      <div class="receipt__section-title">\u0421\u0435\u0440\u0432\u0435\u0440</div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>\u0412\u0440\u0435\u043c\u044f \u0441\u0435\u0440\u0432\u0435\u0440\u0430</span>
+        <span class="receipt__row-value mono">${fmtDate(data.server_time)}</span>
+      </div>
+      <div class="receipt__row">
+        <span class="receipt__row-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg>Receipt ID</span>
+        <span class="receipt__row-value mono">${data.receipt_id||'\u2014'}</span>
+      </div>
+    </div>
+  `;
+
+  const itemsEl=document.getElementById('r-items-inner');
+  if(itemsEl&&data.items&&data.items.length){
+    itemsEl.innerHTML=data.items.map(it=>`
+      <div class="receipt__item">
+        <div class="receipt__item-icon"><img src="assets/shopping-cart.svg" alt="" onerror="this.parentElement.innerHTML='&#128722;'"></div>
+        <div class="receipt__item-info">
+          <div class="receipt__item-name">${it.name}</div>
+          <div class="receipt__item-meta">\u0420\u0430\u0437\u043c\u0435\u0440: ${it.size} &middot; \u041a\u043e\u043b-\u0432\u043e: ${it.qty||1}</div>
+        </div>
+        <div class="receipt__item-price">${fmtPrice(it.price*(it.qty||1))}</div>
+      </div>`).join('');
+  }
+}
+
+function b64decode(b64){
+  try{
+    const bytes=atob(b64);
+    return decodeURIComponent(bytes.split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+  }catch{return atob(b64);}
+}
+
+const params=new URLSearchParams(location.search);
+if(params.get('data')){
+  try{fill(JSON.parse(b64decode(params.get('data'))));}
+  catch(e){
+    document.getElementById('r-loading').textContent='\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0447\u0435\u043a\u0430';
+    console.error('receipt parse',e);
+  }
+} else {
+  document.getElementById('r-loading').textContent='\u0427\u0435\u043a \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0441\u0441\u044b\u043b\u043a\u0443 \u0438\u0437 \u0431\u043e\u0442\u0430.';
+}
+window.addEventListener('message',e=>{if(e.data&&e.data.type==='receipt')fill(e.data.payload);});
+</script>
+</body>
+</html>
