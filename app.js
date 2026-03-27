@@ -18,7 +18,7 @@ const State = {
   searchQuery: '',
   currentProduct: null,
   currentImgIndex: 0,
-  apiBase: 'https://bot1-production-e1e5.up.railway.app/',
+  apiBase: 'https://bot1-production-e1e5.up.railway.app',
   _promoData: null,
 };
 
@@ -1037,7 +1037,7 @@ async function loadConfig() {
     const res = await fetch('config.json?v=' + Date.now());
     const cfg = await res.json();
     State.config = cfg;
-    State.apiBase = cfg.api?.base_url || '';
+    State.apiBase = (cfg.api?.base_url || '').replace(/\/$/, '');
     applyConfig(cfg);
   } catch (e) {
     console.error('Config load failed:', e);
