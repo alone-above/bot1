@@ -55,15 +55,9 @@ async def _send_profile(bot: Bot, tg_user: types.User, user: dict,
     text     = _profile_text(tg_user, user, role)
     markup   = kb_profile(cnt_cart, cnt_wish)
     if edit_msg:
-        try:
-            if edit_msg.photo or edit_msg.video or edit_msg.animation or edit_msg.document:
-                await edit_msg.delete()
-                await bot.send_message(tg_user.id, text, parse_mode="HTML", reply_markup=markup)
-                return
-            await edit_msg.edit_text(text, parse_mode="HTML", reply_markup=markup)
-            return
-        except Exception:
-            pass
+        from handlers.start import smart_edit
+        await smart_edit(bot, edit_msg, tg_user.id, text, "profile_menu", markup)
+        return
     if send_fn:
         await send_fn(text, parse_mode="HTML", reply_markup=markup)
     else:
@@ -186,17 +180,14 @@ async def cb_about(cb: types.CallbackQuery, bot: Bot):
         await cb.answer("🚫", show_alert=True)
         return
     from db import get_setting
+    from handlers.start import smart_edit
     info   = await get_setting("shop_info", "Информация о магазине пока не заполнена.")
     text   = f"{ae('store')} <b>О магазине</b>\n\n<blockquote>{info}</blockquote>"
     markup = kb(
         [btn("Партнёрство", "partnership", icon="link")],
         [btn("Назад",       "main",        icon="back")],
     )
-    try:
-        await cb.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
-    except Exception:
-        await bot.send_message(cb.from_user.id, text, parse_mode="HTML",
-                               reply_markup=markup)
+    await smart_edit(bot, cb.message, cb.from_user.id, text, "about_menu", markup)
     await cb.answer()
 
 
