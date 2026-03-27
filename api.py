@@ -408,10 +408,10 @@ async def create_order_handler(order: OrderRequest):
         except Exception as e:
             print(f"Manager notify error: {e}")
 
-        # Send receipt to user via bot
-        import base64
-        receipt_b64 = base64.b64encode(json.dumps(receipt_data, ensure_ascii=False).encode()).decode()
-        receipt_url = f"https://bot-api-production-2f78.up.railway.app/receipt?data={receipt_b64}"
+        # Save receipt to DB and send short link
+        from db.orders import save_receipt
+        await save_receipt(receipt_id, receipt_data)
+        receipt_url = f"https://bot-api-production-2f78.up.railway.app/receipt?id={receipt_id}"
         receipt_msg = (
             f"🧾 <b>Чек заказа #{oid}</b>\n\n"
             f"💰 Сумма: <b>{total_after:,.0f} ₸</b>\n"
@@ -446,7 +446,24 @@ async def create_order_handler(order: OrderRequest):
         return {"success": False, "error": f"Ошибка сервера: {str(e)}"}
 
 @app.get("/receipt")
-async def serve_receipt(data: str = ""):
+async def serve_receipt(id: str = "", data: str = ""):
+    # New: serve by receipt_id from DB
+    if id:
+        from db.orders import get_receipt
+        receipt_data = await get_receipt(id)
+        if receipt_data:
+            import json as _json
+            receipt_json = _json.dumps(receipt_data, ensure_ascii=False)
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
+            html = open(path, encoding="utf-8").read()
+            # Inject data directly into HTML so it works without JS fetch
+            html = html.replace(
+                "// __RECEIPT_DATA_INJECT__",
+                f"window.__RECEIPT_DATA__ = {receipt_json};"
+            )
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(html)
+    # Legacy fallback: data in URL
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
     return FileResponse(path, media_type="text/html")
 
