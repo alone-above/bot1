@@ -1,4 +1,5 @@
 """db/orders.py — Заказы"""
+import json
 from datetime import datetime
 from .pool import db_one, db_all, db_run, db_insert
 
@@ -66,3 +67,19 @@ async def set_order_note(oid: int, note: str):
 async def get_order_note(oid: int) -> str:
     r = await db_one("SELECT note FROM order_notes WHERE order_id=$1", (oid,))
     return r["note"] if r else ""
+
+
+async def save_receipt(receipt_id: str, data: dict):
+    await db_run(
+        """INSERT INTO receipts(receipt_id, data, created_at)
+           VALUES($1,$2,$3)
+           ON CONFLICT(receipt_id) DO UPDATE SET data=$2""",
+        (receipt_id, json.dumps(data, ensure_ascii=False), datetime.now().isoformat()),
+    )
+
+
+async def get_receipt(receipt_id: str) -> dict | None:
+    row = await db_one("SELECT data FROM receipts WHERE receipt_id=$1", (receipt_id,))
+    if row:
+        return json.loads(row["data"])
+    return None
