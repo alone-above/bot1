@@ -205,13 +205,12 @@ async def cb_agree_terms(cb: types.CallbackQuery, bot: Bot):
     await ensure_user(cb.from_user)
     await set_agreed_terms(cb.from_user.id)
     await set_cmds(bot, cb.from_user.id)
+    
     text = (
         f"{ae('shop')} <b>{SHOP_NAME}</b>\n\n"
         f"<blockquote>{ae('ok')} Спасибо! Вы приняли условия.\n\n"
         f"{ae('down')} Выберите раздел:</blockquote>"
     )
+    
     await smart_edit(bot, cb.message, cb.from_user.id, text, "main_menu", kb_main())
-    await cb.answer("✅ Добро пожаловать!")parse_mode="HTML", reply_markup=kb_main()
-    except Exception:
-        await bot.send_message(cb.from_user.id, text, parse_mode="HTML", reply_markup=kb_main())
     await cb.answer("✅ Добро пожаловать!")
