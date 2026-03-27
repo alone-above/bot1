@@ -62,6 +62,11 @@ async def serve_js():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.js")
     return FileResponse(path, media_type="application/javascript")
 
+@app.get("/config.json")
+async def serve_config():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    return FileResponse(path, media_type="application/json")
+
 # Debug info
 @app.get("/debug")
 async def debug_info():
