@@ -1,707 +1,586 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#0d0d0d">
-  <title>Alone Above Shop</title>
-  <link rel="icon" href="assets/logo.svg">
-  <link rel="stylesheet" href="style.css">
-  <!-- Telegram WebApp SDK -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-</head>
-<body>
+"""
+api.py — FastAPI для мини-аппа
+"""
+import os
+import hashlib
+import hmac
+import json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from datetime import datetime, timezone
 
-<!-- ══════════════ LOADER ══════════════ -->
-<div class="loader-overlay" id="app-loader">
-  <img src="assets/logo.svg" alt="logo" style="width:64px;height:64px;border-radius:16px;margin-bottom:8px">
-  <div class="loader-spinner"></div>
-  <div class="loader-text">Загружаем магазин...</div>
-</div>
+from db.catalog import get_categories, get_products, get_product
+from db.cart import cart_get, wish_get
+from db.users import get_user
+from db.orders import create_order, get_user_orders
+from db.misc import get_reviews, add_review, get_avg_rating, get_review_count
+from db.promos import get_promo_by_code, check_promo_usage, apply_promo_to_price, validate_promo
+from config import SHOP_NAME, SUPPORT_USERNAME, KASPI_PHONE, MANAGER_ID, BOT_TOKEN
+from aiogram import Bot
+from db.pool import db_run
 
-<!-- ══════════════ TOAST ══════════════ -->
-<div class="toast-container" id="toast-container"></div>
+app = FastAPI(title="ShopBot API", description="API для мини-аппа магазина")
 
-<!-- ══════════════ PRODUCT DETAIL OVERLAY ══════════════ -->
-<div id="product-detail" class="product-detail"></div>
+# Отдаём статику (CSS, JS, assets)
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+app.mount("/assets", StaticFiles(directory=os.path.join(_base_dir, "assets")), name="assets")
 
-<!-- ══════════════ CHECKOUT MODAL ══════════════ -->
-<div class="modal-overlay" id="checkout-modal" style="display:none">
-  <div class="modal">
-    <div class="modal__handle"></div>
-    <div class="modal__header">
-      <div class="modal__title">Оформление заказа</div>
-    </div>
-    <div class="modal__body">
-      <div class="input-group">
-        <label class="input-label">Номер телефона</label>
-        <input class="input" id="checkout-phone" type="tel" placeholder="+7 701 234 56 78"
-          value="">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Адрес доставки</label>
-        <input class="input" id="checkout-address" type="text" placeholder="Город, улица, дом, квартира">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Промокод (если есть)</label>
-        <div class="promo-input-wrap">
-          <input class="input" id="checkout-promo" type="text" placeholder="PROMO123">
-          <button class="btn btn-outline btn-sm" id="promo-apply-btn" onclick="applyPromo()">Применить</button>
-        </div>
-      </div>
-      <div style="background:rgba(120,231,0,0.08);border:1px solid rgba(120,231,0,0.2);border-radius:12px;padding:14px;margin-bottom:16px">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Способ оплаты</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <img src="assets/kaspi-kz-seeklogo.svg" style="width:28px;height:28px;border-radius:6px">
-          <div style="font-size:15px;font-weight:600">Kaspi Pay</div>
-        </div>
-        <div style="font-size:13px;font-weight:600;color:var(--primary);margin-top:6px">+7 707 811 5621</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:4px">Реквизиты будут отправлены после подтверждения</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:14px">
-        <span style="color:var(--text2)">Итого:</span>
-        <span style="font-weight:700;font-size:16px;color:var(--primary)" id="checkout-total">—</span>
-      </div>
-      <button class="btn btn-primary btn-full btn-lg" id="submit-order-btn" onclick="submitOrder()">
-        ✅ Оформить заказ
-      </button>
-      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="closeCheckout()">Отмена</button>
-    </div>
-  </div>
-</div>
+# Инициализируем бота для отправки уведомлений менеджеру
+from config import BOT_TOKEN
+bot_instance = Bot(token=BOT_TOKEN)
 
-<!-- ══════════════ ORDER SUCCESS MODAL ══════════════ -->
-<div class="modal-overlay" id="order-success-modal" style="display:none">
-  <div class="modal">
-    <div class="modal__handle"></div>
-    <div class="modal__body" style="text-align:center">
-      <div style="font-size:64px;margin-bottom:16px">🎉</div>
-      <div style="font-size:22px;font-weight:700;margin-bottom:8px">Заказ оформлен!</div>
-      <div style="font-size:14px;color:var(--text2);margin-bottom:20px">Ваш заказ <strong id="success-order-id"></strong> принят</div>
-      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;text-align:left">
-        <div style="font-size:13px;color:var(--text2);margin-bottom:6px">Оплатите через Kaspi:</div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <img src="assets/kaspi-kz-seeklogo.svg" style="width:32px;height:32px;border-radius:8px">
-          <div style="font-size:22px;font-weight:700;color:var(--primary)" id="success-kaspi">+7 707 811 5621</div>
-        </div>
-        <div style="font-size:20px;font-weight:700;margin-top:6px" id="success-amount"></div>
-        <div style="font-size:12px;color:var(--text2);margin-top:8px">После оплаты менеджер свяжется с вами</div>
-      </div>
-      <a id="success-receipt-link" class="btn btn-outline btn-full" href="#" target="_blank" style="display:none;margin-bottom:10px;text-decoration:none;justify-content:center">
-        <img src="assets/receipt.svg" style="width:16px;filter:invert(1);margin-right:6px">
-        Открыть чек
-      </a>
-      <button class="btn btn-primary btn-full" onclick="document.getElementById('order-success-modal').style.display='none';navigate('orders')">
-        Мои заказы
-      </button>
-    </div>
-  </div>
-</div>
+# CORS для веб-приложения
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене укажите конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-<!-- ══════════════ APP SHELL ══════════════ -->
-<div id="app">
+# Health check
+@app.get("/health")
+async def health():
+    return {"status": "API is running", "message": "✅ API работает!"}
 
-  <!-- ── HEADER ── -->
-  <header class="app-header">
-    <div class="app-header__inner">
-      <div class="app-header__logo">
-        <img data-cfg-logo src="assets/logo.svg" alt="logo">
-        <span class="app-header__logo-text font-serif" data-cfg-shopname>Alone Above</span>
-      </div>
-      <div class="app-header__actions">
-        <!-- Search toggle -->
-        <button class="header-btn" onclick="toggleHeaderSearch(this)" aria-label="Поиск">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-        </button>
-        <!-- Favorites -->
-        <button class="header-btn" onclick="navigate('favorites')" aria-label="Избранное" style="position:relative">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-          <span class="header-badge" id="fav-badge-nav" style="display:none">0</span>
-        </button>
-        <!-- Cart -->
-        <button class="header-btn" onclick="navigate('cart')" aria-label="Корзина" style="position:relative">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-          </svg>
-          <span class="header-badge" id="cart-badge-header" style="display:none">0</span>
-        </button>
-      </div>
-    </div>
-    <!-- Collapsible search -->
-    <div id="header-search-wrap" style="display:none;padding:8px 0 0">
-      <div class="search-wrap" style="padding:0">
-        <div class="search-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        </div>
-        <input class="search-input" id="header-search-input" placeholder="Поиск товаров..." oninput="handleSearch(event); navigate('catalog')">
-      </div>
-    </div>
-  </header>
+# Отдаём index.html — Telegram открывает Mini App по этому URL
+@app.get("/")
+async def serve_index():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    return FileResponse(path, media_type="text/html")
 
-  <!-- ══════════════ PAGES ══════════════ -->
+@app.get("/style.css")
+async def serve_css():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css")
+    return FileResponse(path, media_type="text/css")
 
-  <!-- ── HOME ── -->
-  <div class="page active" id="page-home">
-    <!-- Hero -->
-    <section class="hero" id="hero-section">
-      <div class="hero__overlay"></div>
-      <div class="hero__content animate-fade">
-        <div class="hero__tag">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          Новая коллекция 2025
-        </div>
-        <div class="hero__title font-serif" id="hero-title">
-          Alone<br><span>Above</span> Shop
-        </div>
-        <p class="hero__desc" id="hero-desc">
-          Эксклюзивный стритвир для тех, кто не боится выделяться. Премиальное качество.
-        </p>
-        <div class="hero__btns">
-          <button class="btn btn-primary" id="hero-btn-catalog" onclick="navigate('catalog')">
-            Смотреть каталог
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          </button>
-          <button class="btn btn-outline" id="hero-btn-about" onclick="navigate('about')">О нас</button>
-        </div>
-      </div>
-    </section>
+@app.get("/app.js")
+async def serve_js():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.js")
+    return FileResponse(path, media_type="application/javascript")
 
-    <!-- Features -->
-    <div class="features-bar">
-      <div class="features-bar__inner" id="features-inner">
-        <!-- Populated by JS -->
-        <div class="feature-item">
-          <div class="feature-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-          </div>
-          <div>
-            <div class="feature-item__title">Быстрая доставка</div>
-            <div class="feature-item__desc">По всему Казахстану</div>
-          </div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          </div>
-          <div>
-            <div class="feature-item__title">Гарантия качества</div>
-            <div class="feature-item__desc">Оригинальные товары</div>
-          </div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/></svg>
-          </div>
-          <div>
-            <div class="feature-item__title">Бонусная программа</div>
-            <div class="feature-item__desc">До 10% кэшбэка</div>
-          </div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-          </div>
-          <div>
-            <div class="feature-item__title">Возврат 14 дней</div>
-            <div class="feature-item__desc">Без лишних вопросов</div>
-          </div>
-        </div>
-      </div>
-    </div>
+@app.get("/config.json")
+async def serve_config():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    return FileResponse(path, media_type="application/json")
 
-    <!-- Featured -->
-    <section class="section container">
-      <div class="section-header">
-        <div>
-          <div class="section-header__title font-serif">Популярное</div>
-          <div class="section-header__sub">Хиты продаж этой недели</div>
-        </div>
-        <button class="section-header__link" onclick="navigate('catalog')">Все →</button>
-      </div>
-      <div class="product-grid" id="home-featured">
-        <!-- Skeleton -->
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-      </div>
-    </section>
+# Debug info
+@app.get("/debug")
+async def debug_info():
+    try:
+        cats = await get_categories()
+        cat_count = len(cats) if cats else 0
+        cat_names = [c.get('name', 'N/A') for c in (cats or [])][:5]
+        
+        return {
+            "api_status": "✅ Работает",
+            "categories_count": cat_count,
+            "categories_sample": cat_names,
+            "message": "API и БД инициализированы"
+        }
+    except Exception as e:
+        return {
+            "api_status": "❌ Ошибка",
+            "error": str(e),
+            "message": "Проблема с подключением к БД"
+        }
 
-    <!-- Sale Banner -->
-    <section class="section-lg">
-      <div class="sale-banner">
-        <div class="sale-banner__bg" id="sale-banner-img" style="background-image:url('https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&q=80&fit=crop');background-size:cover;background-position:center;height:180px"></div>
-        <div class="sale-banner__overlay"></div>
-        <div class="sale-banner__content">
-          <div class="sale-banner__label">Специальное предложение</div>
-          <div class="sale-banner__title font-serif" id="sale-title">
-            Скидки до <span>30%</span>
-          </div>
-          <div class="sale-banner__sub" id="sale-sub">На всю коллекцию!</div>
-          <button class="btn btn-primary btn-sm" id="sale-btn" onclick="navigate('catalog')">К товарам</button>
-        </div>
-      </div>
-    </section>
+# Тестовые эндпоинты (без параметров)
+@app.get("/test/categories")
+async def test_categories():
+    """Тестовый эндпоинт для проверки категорий"""
+    try:
+        cats = await get_categories()
+        return {
+            "success": True,
+            "count": len(cats) if cats else 0,
+            "data": cats[:5] if cats else []
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
-    <!-- New Arrivals -->
-    <section class="section container">
-      <div class="section-header">
-        <div>
-          <div class="section-header__title font-serif">Новинки</div>
-          <div class="section-header__sub">Только что поступили</div>
-        </div>
-        <button class="section-header__link" onclick="navigate('catalog')">Все →</button>
-      </div>
-      <div class="product-grid" id="home-new"></div>
-    </section>
+@app.get("/test/products")
+async def test_products():
+    """Тестовый эндпоинт для проверки товаров"""
+    try:
+        if not await get_categories():
+            return {"success": False, "error": "Нет категорий"}
+        
+        cat = (await get_categories())[0]
+        prods = await get_products(cat['id'])
+        return {
+            "success": True,
+            "category": cat['name'],
+            "count": len(prods) if prods else 0,
+            "data": prods[:3] if prods else []
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
-    <!-- Telegram CTA -->
-    <section class="section container" style="padding-bottom:28px">
-      <div style="background:linear-gradient(135deg,rgba(120,231,0,0.12),rgba(78,150,0,0.06));border:1px solid rgba(120,231,0,0.2);border-radius:20px;padding:24px;text-align:center">
-        <div style="font-size:32px;margin-bottom:12px">📱</div>
-        <div class="font-serif" style="font-size:20px;margin-bottom:8px">Будьте в курсе</div>
-        <div style="font-size:13px;color:var(--text2);margin-bottom:16px">Подпишитесь на Telegram-канал и получите скидку 10% на первый заказ</div>
-        <a class="btn btn-primary" data-cfg-tglink href="#" target="_blank">
-          ✈️ Подписаться в Telegram
-        </a>
-      </div>
-    </section>
-  </div>
+# Категории
+@app.get("/categories")
+async def get_all_categories():
+    try:
+        categories = await get_categories()
+        return {"categories": categories}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-  <!-- ── CATALOG ── -->
-  <div class="page" id="page-catalog">
-    <div style="padding:16px 0 8px">
-      <div class="search-wrap">
-        <div class="search-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        </div>
-        <input class="search-input" id="catalog-search" placeholder="Поиск товаров..." oninput="handleSearch(event)">
-      </div>
-    </div>
-    <div class="cats-scroll" style="margin-bottom:16px">
-      <div class="cats-inner" id="cat-chips">
-        <div class="cat-chip active">🔥 Все</div>
-      </div>
-    </div>
-    <div class="container">
-      <div class="product-grid" id="product-grid">
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-        <div class="skeleton" style="height:220px;border-radius:14px"></div>
-      </div>
-    </div>
-  </div>
+@app.get("/categories/{category_id}/products")
+async def get_products_in_category(category_id: int):
+    try:
+        products = await get_products(category_id)
+        return {"products": products}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-  <!-- ── CART ── -->
-  <div class="page" id="page-cart">
-    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">Корзина</div>
-        <button class="btn btn-danger btn-sm" onclick="cartClear()">Очистить</button>
-      </div>
+# Товары
+@app.get("/products/{product_id}")
+async def get_single_product(product_id: int):
+    try:
+        product = await get_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return {"product": product}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-      <div id="cart-empty" style="display:none" class="empty-state">
-        <div class="empty-state__icon">🛒</div>
-        <div class="empty-state__title">Корзина пуста</div>
-        <div class="empty-state__desc">Добавьте товары из каталога</div>
-        <button class="btn btn-primary" onclick="navigate('catalog')">В каталог</button>
-      </div>
 
-      <div id="cart-list"></div>
-      <div id="cart-summary" class="cart-summary" style="display:none"></div>
+# Галерея товара
+@app.get("/products/{product_id}/gallery")
+async def get_product_gallery(product_id: int):
+    try:
+        product = await get_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        import json
+        gallery = []
+        try:
+            gallery = json.loads(product.get("gallery") or "[]")
+        except Exception:
+            pass
+        # Include card as first image if exists
+        card_fid = product.get("card_file_id", "")
+        card_mt  = product.get("card_media_type", "photo")
+        return {
+            "gallery": gallery,
+            "card_file_id": card_fid,
+            "card_media_type": card_mt,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-      <button class="btn btn-primary btn-full btn-lg" id="checkout-btn" onclick="openCheckout()" style="display:none;margin-top:16px">
-        ✅ Оформить заказ
-      </button>
-    </div>
-  </div>
+# Корзина
+@app.get("/cart/{user_id}")
+async def get_user_cart(user_id: int):
+    try:
+        cart = await cart_get(user_id)
+        return {"cart": cart}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-  <!-- ── FAVORITES ── -->
-  <div class="page" id="page-favorites">
-    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">Избранное</div>
-      </div>
-      <div class="product-grid" id="fav-grid"></div>
-    </div>
-  </div>
+# Избранное
+@app.get("/wishlist/{user_id}")
+async def get_user_wishlist(user_id: int):
+    try:
+        wishlist = await wish_get(user_id)
+        return {"wishlist": wishlist}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-  <!-- ── PROFILE ── -->
-  <div class="page" id="page-profile">
-    <div class="container section">
-      <div class="profile-card animate-fade" id="profile-card">
-        <div id="profile-avatar-ph" class="profile-avatar-ph">👤</div>
-        <img id="profile-avatar" class="profile-avatar" src="" alt="avatar" style="display:none">
-        <div>
-          <div style="font-size:18px;font-weight:700" id="profile-name">Загрузка...</div>
-          <div style="font-size:13px;color:var(--text2)" id="profile-username"></div>
-        </div>
-      </div>
+@app.post("/wishlist/add")
+async def add_to_wishlist(req: dict):
+    try:
+        from db.cart import wish_add
+        user_id = req.get("user_id", 999999)
+        product_id = req.get("product_id")
+        if not product_id:
+            raise HTTPException(status_code=400, detail="product_id required")
+        result = await wish_add(user_id, product_id)
+        return {"success": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-      <div class="profile-stats">
-        <div class="stat-card animate-fade delay-1">
-          <div class="stat-card__value" id="stat-orders">0</div>
-          <div class="stat-card__label">Заказов</div>
-        </div>
-        <div class="stat-card animate-fade delay-2">
-          <div class="stat-card__value" id="stat-bonus">0</div>
-          <div class="stat-card__label">Бонусов ₸</div>
-        </div>
-        <div class="stat-card animate-fade delay-3">
-          <div class="stat-card__value" id="stat-favs">0</div>
-          <div class="stat-card__label">Избранных</div>
-        </div>
-      </div>
+@app.post("/wishlist/remove")
+async def remove_from_wishlist(req: dict):
+    try:
+        from db.cart import wish_remove
+        user_id = req.get("user_id", 999999)
+        product_id = req.get("product_id")
+        if not product_id:
+            raise HTTPException(status_code=400, detail="product_id required")
+        await wish_remove(user_id, product_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-      <div class="menu-list">
-        <div class="menu-item animate-fade delay-1" onclick="navigate('orders')">
-          <div class="menu-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          </div>
-          <span class="menu-item__title">Мои заказы</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade delay-2" onclick="navigate('favorites')">
-          <div class="menu-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          </div>
-          <span class="menu-item__title">Избранное</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade delay-3" onclick="navigate('bonuses')">
-          <div class="menu-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-          </div>
-          <span class="menu-item__title">Бонусы и кэшбэк</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade delay-4" onclick="navigate('support')">
-          <div class="menu-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div>
-          <span class="menu-item__title">Поддержка</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade delay-4" onclick="navigate('about')">
-          <div class="menu-item__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          </div>
-          <span class="menu-item__title">О магазине</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade" onclick="navigate('drops')">
-          <div class="menu-item__icon" style="background:rgba(255,80,0,0.12);color:#ff8a00">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.657 18.657A8 8 0 0 1 6.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0 1 20 13a7.975 7.975 0 0 1-2.343 5.657z"/><path d="M9.879 16.121A3 3 0 1 0 12.99 12L11 14"/></svg>
-          </div>
-          <span class="menu-item__title">🔥 Дропы</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="menu-item animate-fade" onclick="navigate('partnership')">
-          <div class="menu-item__icon" style="background:rgba(100,150,255,0.12);color:#6496ff">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          </div>
-          <span class="menu-item__title">Партнёрская программа</span>
-          <div class="menu-item__arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-      </div>
-    </div>
-  </div>
+# Профиль
+@app.get("/profile/{user_id}")
+async def get_user_profile(user_id: int):
+    try:
+        user = await get_user(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"profile": user}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-  <!-- ── ORDERS ── -->
-  <div class="page" id="page-orders">
-    <div class="container section">
-      <div class="section-header">
-        <div>
-          <button class="btn btn-ghost btn-icon" onclick="navigate('profile')" style="margin-right:6px">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          </button>
-        </div>
-        <div class="section-header__title font-serif" style="flex:1">Мои заказы</div>
-      </div>
-      <div id="orders-list"></div>
-    </div>
-  </div>
+# О магазине
+@app.get("/store")
+async def get_store_info():
+    return {
+        "name": SHOP_NAME,
+        "support_username": SUPPORT_USERNAME,
+        "kaspi_phone": KASPI_PHONE,
+        "manager_id": MANAGER_ID
+    }
 
-  <!-- ── DROPS ── -->
-  <div class="page" id="page-drops">    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">🔥 Дропы</div>
-      </div>
-      <div id="drops-list"></div>
-    </div>
-  </div>
+# Поддержка
+@app.get("/support")
+async def get_support_info():
+    return {
+        "username": SUPPORT_USERNAME,
+        "phone": KASPI_PHONE
+    }
 
-  <!-- ── SUPPORT ── -->
-  <div class="page" id="page-support">
-    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">Поддержка</div>
-      </div>
-      <div style="background:rgba(120,231,0,0.08);border:1px solid rgba(120,231,0,0.2);border-radius:14px;padding:16px;margin-bottom:20px;font-size:14px;color:var(--text2)">
-        Мы готовы помочь вам с любым вопросом. Выберите удобный способ связи:
-      </div>
+# Проверка промокода
+@app.post("/promo/check")
+async def check_promo(req: dict):
+    code = (req.get("code") or "").strip().upper()
+    user_id = req.get("user_id", 0)
+    if not code:
+        return {"valid": False, "error": "Введите промокод"}
+    promo, err = await validate_promo(code, user_id)
+    if not promo:
+        return {"valid": False, "error": err}
+    from db.promos import apply_promo_to_price as _apply
+    # Calculate on dummy price to show discount info
+    return {
+        "valid": True,
+        "promo_type": promo["promo_type"],
+        "value": promo["value"],
+        "description": promo["description"],
+    }
 
-      <a class="support-card" href="#" data-support-link="telegram" target="_blank">
-        <div class="support-card__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <div>
-          <div class="support-card__title">Telegram-поддержка</div>
-          <div class="support-card__desc">Онлайн с 10:00 до 22:00</div>
-        </div>
-        <div style="margin-left:auto;color:var(--text3)">→</div>
-      </a>
+# ══════════════════════════════════════════════
+# ЗАКАЗЫ
+# ══════════════════════════════════════════════
 
-      <a class="support-card" href="#" data-support-link="channel" target="_blank">
-        <div class="support-card__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.99 12 19.79 19.79 0 0 1 1.88 3.32 2 2 0 0 1 3.95 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-        </div>
-        <div>
-          <div class="support-card__title">Telegram-канал</div>
-          <div class="support-card__desc">Новости и акции</div>
-        </div>
-        <div style="margin-left:auto;color:var(--text3)">→</div>
-      </a>
+class OrderItem(BaseModel):
+    product_id: int
+    size: str
+    qty: int = 1
 
-      <div style="margin-top:20px;background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px">FAQ</div>
-        <details style="margin-bottom:10px">
-          <summary style="cursor:pointer;font-size:13px;padding:4px 0;color:var(--text)">Как сделать заказ?</summary>
-          <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.6">Выберите товар в каталоге, нажмите «В корзину», затем перейдите в корзину и оформите заказ.</div>
-        </details>
-        <details style="margin-bottom:10px">
-          <summary style="cursor:pointer;font-size:13px;padding:4px 0;color:var(--text)">Как оплатить?</summary>
-          <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.6">После оформления заказа вы получите реквизиты для оплаты через Kaspi Pay.</div>
-        </details>
-        <details>
-          <summary style="cursor:pointer;font-size:13px;padding:4px 0;color:var(--text)">Сроки доставки?</summary>
-          <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.6">Доставка по Казахстану 3–7 рабочих дней. Сроки указаны на странице каждого товара.</div>
-        </details>
-      </div>
-    </div>
-  </div>
+class OrderRequest(BaseModel):
+    items: list[OrderItem]
+    phone: str
+    address: str
+    promo_code: str = ""
+    method: str = "kaspi"
+    user_id: int = None  # Реальный Telegram user ID
 
-  <!-- ── ABOUT ── -->
-  <div class="page" id="page-about">
-    <div class="container section">
-      <div class="about-hero">
-        <img data-cfg-logo src="assets/logo.svg" alt="logo" style="width:64px;height:64px;border-radius:16px;margin:0 auto 12px">
-        <div class="font-serif" style="font-size:24px;margin-bottom:8px" id="about-name">Alone Above Shop</div>
-        <div style="font-size:13px;color:var(--text2);line-height:1.6" id="about-desc">Эксклюзивный магазин стритвир одежды</div>
-      </div>
+@app.post("/order/create")
+async def create_order_handler(order: OrderRequest):
+    try:
+        if not order.items:
+            return {"success": False, "error": "Корзина пуста"}
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px">
-        <div class="stat-card"><div class="stat-card__value" style="font-size:18px">500+</div><div class="stat-card__label">Товаров</div></div>
-        <div class="stat-card"><div class="stat-card__value" style="font-size:18px">1000+</div><div class="stat-card__label">Клиентов</div></div>
-        <div class="stat-card"><div class="stat-card__value" style="font-size:18px">3–7</div><div class="stat-card__label">Дней доставки</div></div>
-        <div class="stat-card"><div class="stat-card__value" style="font-size:18px">14</div><div class="stat-card__label">Дней возврата</div></div>
-      </div>
+        user_id = order.user_id or 999999
+        user = await get_user(user_id)
 
-      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px">📍 Контакты</div>
-        <div style="font-size:13px;color:var(--text2);line-height:2">
-          <div>📱 Telegram: <span data-cfg-shopname>@aloneaboveshop</span></div>
-          <div>⏰ Время работы: 10:00 — 22:00</div>
-        </div>
-      </div>
+        if not user:
+            await db_run(
+                """INSERT INTO users(user_id, username, first_name, registered_at)
+                   VALUES($1, $2, $3, $4)
+                   ON CONFLICT(user_id) DO UPDATE SET username=$2, first_name=$3""",
+                (user_id, "webappuser", "WebApp User", datetime.now(timezone.utc).isoformat()),
+            )
+            user = {"username": "", "first_name": "WebApp", "phone": "", "default_address": ""}
 
-      <a class="btn btn-primary btn-full" data-cfg-tglink href="#" target="_blank" style="margin-top:8px">
-        ✈️ Написать нам в Telegram
-      </a>
-    </div>
-  </div>
+        # Validate promo
+        discount = 0
+        promo_info_text = ""
+        promo_obj = None
+        if order.promo_code:
+            promo_obj, err = await validate_promo(order.promo_code, user_id)
+            if not promo_obj:
+                return {"success": False, "error": err}
 
-  <!-- ── BONUSES ── -->
-  <div class="page" id="page-bonuses">
-    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">Бонусы</div>
-      </div>
-      <div class="bonus-card animate-fade">
-        <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:4px">Ваш баланс</div>
-        <div class="bonus-card__amount" id="bonuses-balance">0</div>
-        <div class="bonus-card__label">бонусных тенге</div>
-        <div class="bonus-card__sub">1 бонус = 1 ₸ при оплате</div>
-      </div>
+        # Build order items with prices
+        order_items = []
+        total = 0
+        for item in order.items:
+            product = await get_product(item.product_id)
+            if not product:
+                return {"success": False, "error": f"Товар {item.product_id} не найден"}
+            qty = getattr(item, 'qty', 1) or 1
+            line_price = product["price"] * qty
+            total += line_price
+            order_items.append({
+                "product_id": item.product_id,
+                "name": product["name"],
+                "size": item.size,
+                "price": product["price"],
+                "qty": qty,
+            })
 
-      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">
-        <div style="font-size:14px;font-weight:600;margin-bottom:12px">Как получить бонусы?</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:32px;height:32px;border-radius:50%;background:rgba(120,231,0,0.15);display:flex;align-items:center;justify-content:center;font-size:14px">🛒</div>
-            <div style="font-size:13px;color:var(--text2)">За каждый заказ — 5% кэшбэка бонусами</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:32px;height:32px;border-radius:50%;background:rgba(120,231,0,0.15);display:flex;align-items:center;justify-content:center;font-size:14px">👥</div>
-            <div style="font-size:13px;color:var(--text2)">За каждого друга — 500 бонусов</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:32px;height:32px;border-radius:50%;background:rgba(120,231,0,0.15);display:flex;align-items:center;justify-content:center;font-size:14px">✈️</div>
-            <div style="font-size:13px;color:var(--text2)">Подписка на канал — 100 бонусов</div>
-          </div>
-        </div>
-      </div>
-      <a class="btn btn-primary btn-full" data-cfg-tglink href="#" target="_blank">
-        ✈️ Подписаться и получить бонусы
-      </a>
-    </div>
-  </div>
+        # Apply promo to total
+        if promo_obj:
+            total_after, discount, promo_info_text = apply_promo_to_price(total, promo_obj)
+        else:
+            total_after = total
 
-  <!-- ── PARTNERSHIP ── -->
-  <div class="page" id="page-partnership">
-    <div class="container section">
-      <div class="section-header">
-        <div class="section-header__title font-serif">Партнёрство</div>
-      </div>
-      <div style="background:linear-gradient(135deg,rgba(100,150,255,0.12),rgba(100,100,255,0.06));border:1px solid rgba(100,150,255,0.2);border-radius:16px;padding:20px;margin-bottom:16px;text-align:center">
-        <div style="font-size:40px;margin-bottom:8px">🤝</div>
-        <div class="font-serif" style="font-size:20px;margin-bottom:8px">Партнёрская программа</div>
-        <div style="font-size:13px;color:var(--text2)">Приглашай друзей и зарабатывай бонусы с каждой их покупки</div>
-      </div>
-      <div class="ref-card">
-        <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Ваша реферальная ссылка</div>
-        <div class="ref-code-box" onclick="copyRefLink(this)">
-          <span class="ref-code" id="ref-link">Загружается...</span>
-          <span style="font-size:13px;color:var(--text2)">📋 Копировать</span>
-        </div>
-      </div>
-      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px">
-        <div style="font-size:14px;font-weight:600;margin-bottom:12px">Условия:</div>
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--text2)">
-          <div>💰 5% от суммы первой покупки друга</div>
-          <div>💰 3% от суммы повторных покупок</div>
-          <div>🎁 500 бонусов за нового покупателя</div>
-        </div>
-      </div>
-    </div>
-  </div>
+        # Create one order per item (existing schema)
+        first_item = order_items[0]
+        oid = await create_order(
+            uid=user_id,
+            username=user.get("username", "") or "webappuser",
+            first_name=user.get("first_name", "") or "WebApp",
+            pid=first_item["product_id"],
+            size=first_item["size"],
+            price=total_after,
+            method=order.method,
+            phone=order.phone,
+            address=order.address,
+            promo_code=order.promo_code,
+            discount=discount,
+        )
 
-</div><!-- /app -->
+        if not oid:
+            return {"success": False, "error": "Ошибка при создании заказа"}
 
-<!-- ══════════════ REVIEWS PAGE ══════════════ -->
-<div class="page" id="page-reviews" style="display:none">
-  <div class="container section">
-    <div class="section-header">
-      <div>
-        <button class="btn btn-ghost btn-icon" onclick="closeReviews()" style="margin-right:6px">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-        </button>
-      </div>
-      <div class="section-header__title font-serif" style="flex:1">Отзывы</div>
-      <button class="btn btn-primary btn-sm" onclick="openWriteReview()">+ Написать</button>
-    </div>
-    <div id="reviews-summary" style="background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
-      <div style="text-align:center">
-        <div style="font-size:36px;font-weight:700;color:var(--primary)" id="reviews-avg">—</div>
-        <div id="reviews-stars" style="font-size:18px;color:#ffd700">☆☆☆☆☆</div>
-        <div style="font-size:12px;color:var(--text2)" id="reviews-count">0 отзывов</div>
-      </div>
-    </div>
-    <div id="reviews-list"></div>
-  </div>
-</div>
+        # Mark promo as used
+        if promo_obj:
+            from db.promos import use_promo
+            await use_promo(user_id, promo_obj["id"], oid)
 
-<!-- ══════════════ WRITE REVIEW MODAL ══════════════ -->
-<div class="modal-overlay" id="write-review-modal" style="display:none">
-  <div class="modal">
-    <div class="modal__handle"></div>
-    <div class="modal__header"><div class="modal__title">Написать отзыв</div></div>
-    <div class="modal__body">
-      <div class="input-group">
-        <label class="input-label">Оценка</label>
-        <div id="star-picker" style="display:flex;gap:8px;font-size:32px;cursor:pointer">
-          <span onclick="setReviewRating(1)" data-star="1">☆</span>
-          <span onclick="setReviewRating(2)" data-star="2">☆</span>
-          <span onclick="setReviewRating(3)" data-star="3">☆</span>
-          <span onclick="setReviewRating(4)" data-star="4">☆</span>
-          <span onclick="setReviewRating(5)" data-star="5">☆</span>
-        </div>
-      </div>
-      <div class="input-group">
-        <label class="input-label">Комментарий <span id="review-char-count" style="color:var(--text3);font-weight:400">0 / 80 мин.</span></label>
-        <textarea class="input" id="review-comment" rows="4" placeholder="Расскажите подробно о товаре, качестве, доставке... (минимум 80 символов)" style="resize:none;height:110px" oninput="onReviewCommentInput(this)"></textarea>
-      </div>
-      <button class="btn btn-primary btn-full" onclick="submitReview()">Отправить отзыв</button>
-      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="closeWriteReview()">Отмена</button>
-    </div>
-  </div>
-</div>
+        # Build digital signature
+        server_time = datetime.now(timezone.utc).isoformat()
+        receipt_id = f"AA-{oid}-{user_id}"
+        sig_payload = f"{oid}:{user_id}:{total_after}:{server_time}"
+        signature = hmac.new(BOT_TOKEN.encode(), sig_payload.encode(), hashlib.sha256).hexdigest()[:32]
 
-<!-- ══════════════ BOTTOM NAV ══════════════ -->
-<nav class="bottom-nav">
-  <div class="nav-item active" data-nav="home" onclick="navigate('home')">
-    <div class="nav-icon-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        <polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>
-    </div>
-    <span>Главная</span>
-  </div>
-  <div class="nav-item" data-nav="catalog" onclick="navigate('catalog')">
-    <div class="nav-icon-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-      </svg>
-    </div>
-    <span>Каталог</span>
-  </div>
-  <div class="nav-item" data-nav="cart" onclick="navigate('cart')">
-    <div class="nav-icon-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-      </svg>
-      <span class="nav-badge" id="cart-badge-nav" style="display:none">0</span>
-    </div>
-    <span>Корзина</span>
-  </div>
-  <div class="nav-item" data-nav="drops" onclick="navigate('drops')">
-    <div class="nav-icon-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M17.657 18.657A8 8 0 0 1 6.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0 1 20 13a7.975 7.975 0 0 1-2.343 5.657z"/>
-        <path d="M9.879 16.121A3 3 0 1 0 12.99 12L11 14"/>
-      </svg>
-    </div>
-    <span>Дропы</span>
-  </div>
-  <div class="nav-item" data-nav="profile" onclick="navigate('profile')">
-    <div class="nav-icon-wrap">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-        <circle cx="12" cy="7" r="4"/>
-      </svg>
-    </div>
-    <span>Профиль</span>
-  </div>
-</nav>
+        # Receipt data
+        receipt_data = {
+            "order_id": oid,
+            "receipt_id": receipt_id,
+            "user_id": user_id,
+            "username": user.get("username", ""),
+            "created_at": server_time,
+            "server_time": server_time,
+            "method": order.method,
+            "items": order_items,
+            "total": total_after,
+            "discount": discount,
+            "promo_code": order.promo_code,
+            "signature": signature,
+            "shop_name": SHOP_NAME,
+            "support": SUPPORT_USERNAME,
+        }
 
-<script src="app.js"></script>
-<script>
-// Extra helpers that reference DOM
-function toggleHeaderSearch(btn) {
-  const wrap = document.getElementById('header-search-wrap');
-  const isOpen = wrap.style.display !== 'none';
-  wrap.style.display = isOpen ? 'none' : 'block';
-  if (!isOpen) document.getElementById('header-search-input').focus();
-}
+        # Notify manager
+        items_text = "\n".join(f"  • {i['name']} ({i['size']}) x{i['qty']} — {i['price']*i['qty']:,.0f} ₸" for i in order_items)
+        notif = (
+            f"🔔 <b>Новый заказ #{oid} (WebApp)</b>\n\n"
+            f"👤 ID: <code>{user_id}</code>\n"
+            f"📦 Товары:\n{items_text}\n"
+            f"💰 Итого: <b>{total_after:,.0f} ₸</b>"
+            + (f"\n🏷 Промокод: {order.promo_code} (-{discount:,.0f} ₸)" if discount else "")
+            + f"\n📞 Телефон: {order.phone}\n📍 Адрес: {order.address}\n\n"
+            f"<blockquote>⏳ Ожидается оплата через Kaspi</blockquote>"
+        )
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        mgr_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"weborder_confirm_{oid}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"weborder_reject_{oid}"),
+        ]])
+        try:
+            await bot_instance.send_message(MANAGER_ID, notif, parse_mode="HTML", reply_markup=mgr_kb)
+        except Exception as e:
+            print(f"Manager notify error: {e}")
 
-function copyRefLink(el) {
-  const userId = State?.user?.id || 'guest';
-  const cfg = State?.config;
-  const link = `https://t.me/${cfg?.telegram?.channel?.replace('https://t.me/', '') || 'aloneaboveshop'}?start=ref_${userId}`;
-  document.getElementById('ref-link').textContent = link;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована!', 'success'));
-  }
-}
-</script>
-</body>
-</html>
+        # Build and send receipt as HTML file
+        try:
+            import io
+            receipt_template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
+            with open(receipt_template_path, encoding="utf-8") as f:
+                receipt_html = f.read()
+            receipt_json = json.dumps(receipt_data, ensure_ascii=False)
+            receipt_html = receipt_html.replace(
+                "// __RECEIPT_DATA_INJECT__",
+                f"window.__RECEIPT_DATA__ = {receipt_json};"
+            )
+            receipt_bytes = io.BytesIO(receipt_html.encode("utf-8"))
+            receipt_bytes.name = f"receipt#{oid}.html"
+            receipt_msg = (
+                f"🧾 <b>Чек заказа #{oid}</b>\n\n"
+                f"💰 Сумма: <b>{total_after:,.0f} ₸</b>\n"
+                f"📲 Переведите на номер: <code>{KASPI_PHONE}</code>\n\n"
+                f"<blockquote>После оплаты менеджер подтвердит заказ.</blockquote>"
+            )
+            from aiogram.types import BufferedInputFile
+            await bot_instance.send_document(
+                user_id,
+                BufferedInputFile(receipt_html.encode("utf-8"), filename=f"receipt#{oid}.html"),
+                caption=receipt_msg,
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            print(f"User receipt send error: {e}")
+
+        return {
+            "success": True,
+            "order_id": oid,
+            "receipt": receipt_data,
+            "payment_info": {
+                "method": "kaspi",
+                "phone": KASPI_PHONE,
+                "amount": total_after,
+                "description": f"Заказ #{oid}",
+            },
+            "message": f"✅ Заказ #{oid} создан!",
+        }
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return {"success": False, "error": f"Ошибка сервера: {str(e)}"}
+
+@app.get("/receipt")
+async def serve_receipt(id: str = "", data: str = ""):
+    # New: serve by receipt_id from DB
+    if id:
+        from db.orders import get_receipt
+        receipt_data = await get_receipt(id)
+        if receipt_data:
+            import json as _json
+            receipt_json = _json.dumps(receipt_data, ensure_ascii=False)
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
+            html = open(path, encoding="utf-8").read()
+            # Inject data directly into HTML so it works without JS fetch
+            html = html.replace(
+                "// __RECEIPT_DATA_INJECT__",
+                f"window.__RECEIPT_DATA__ = {receipt_json};"
+            )
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(html)
+    # Legacy fallback: data in URL
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "receipt.html")
+    return FileResponse(path, media_type="text/html")
+
+
+@app.get("/file-url")
+async def get_file_url(file_id: str):
+    """Получить публичный URL файла из Telegram по file_id"""
+    try:
+        file = await bot_instance.get_file(file_id)
+        url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+        return {"url": url}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# Заказы пользователя
+@app.get("/orders")
+async def get_orders_for_current_user(user_id: int = None):
+    """
+    Получить заказы пользователя (требует user_id в query параметре или заголовке)
+    """
+    try:
+        if user_id is None:
+            # Пробуем получить из куки или заголовка (если будет реализовано)
+            return {"orders": []}
+        
+        orders = await get_user_orders(user_id)
+        return {"orders": orders or []}
+    except Exception as e:
+        return {"orders": []}
+
+@app.get("/orders/{user_id}")
+async def get_user_orders_endpoint(user_id: int):
+    """
+    Получить все заказы пользователя по его ID
+    """
+    try:
+        orders = await get_user_orders(user_id)
+        
+        # Форматируем заказы для фронтенда
+        formatted_orders = []
+        for order in orders:
+            formatted_orders.append({
+                "id": order.get("id"),
+                "created_at": order.get("created_at"),
+                "status": order.get("status"),
+                "pname": order.get("product_name"),
+                "size": order.get("size"),
+                "price": order.get("price"),
+            })
+        
+        return {"orders": formatted_orders}
+    except Exception as e:
+        print(f"❌ Ошибка при получении заказов: {e}")
+        return {"orders": []}
+
+
+# ══════════════════════════════════════════════
+# ОТЗЫВЫ
+# ══════════════════════════════════════════════
+
+@app.get("/products/{product_id}/reviews")
+async def get_product_reviews(product_id: int, limit: int = 20):
+    try:
+        reviews = await get_reviews(product_id, limit=limit)
+        avg = await get_avg_rating(product_id)
+        count = await get_review_count(product_id)
+        return {
+            "reviews": [
+                {
+                    "id": r.get("id"),
+                    "user_id": r.get("user_id"),
+                    "username": r.get("username") or "",
+                    "first_name": r.get("first_name") or "Покупатель",
+                    "rating": r.get("rating"),
+                    "comment": r.get("comment"),
+                    "photo_file_id": r.get("photo_file_id") or "",
+                    "created_at": r.get("created_at"),
+                }
+                for r in reviews
+            ],
+            "avg_rating": avg,
+            "count": count,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ReviewRequest(BaseModel):
+    user_id: int
+    order_id: int = 0
+    rating: int
+    comment: str
+    photo_file_id: str = ""
+
+@app.post("/products/{product_id}/reviews")
+async def post_product_review(product_id: int, req: ReviewRequest):
+    try:
+        if not 1 <= req.rating <= 5:
+            raise HTTPException(status_code=400, detail="rating must be 1-5")
+        if not req.comment.strip():
+            raise HTTPException(status_code=400, detail="comment required")
+        if len(req.comment.strip()) < 80:
+            raise HTTPException(status_code=400, detail="Минимум 80 символов в отзыве")
+        await add_review(req.user_id, product_id, req.order_id, req.rating, req.comment.strip(), req.photo_file_id)
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
