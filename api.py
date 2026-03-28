@@ -124,7 +124,11 @@ async def test_products():
 @app.get("/categories")
 async def get_all_categories():
     try:
+        from db.catalog import get_all_categories as _get_all
         categories = await get_categories()
+        # Fallback: if root (parent_id=0) returns nothing, return all categories
+        if not categories:
+            categories = await _get_all()
         return {"categories": categories}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
