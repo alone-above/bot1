@@ -25,7 +25,7 @@ def parse_sizes(product: dict) -> list:
 async def get_categories(parent_id: int = 0) -> list:
     return await cached_db_all(
         f"categories:p{parent_id}",
-        "SELECT * FROM categories WHERE (parent_id=$1 OR (parent_id IS NULL AND $1=0)) ORDER BY id",
+        "SELECT * FROM categories WHERE parent_id=$1 ORDER BY id",
         (parent_id,),
     )
 
